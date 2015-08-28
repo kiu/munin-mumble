@@ -1,0 +1,74 @@
+#!/usr/bin/python
+from struct import *
+import socket, sys, time, datetime
+import rrdtool
+from rrdtool import update as rrd_update
+
+
+def mumble_query(host, port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(5)
+
+    buf = pack(">iQ", 0, datetime.datetime.now().microsecond)
+    s.sendto(buf, (host, int(port)))
+
+    try:
+        data, addr = s.recvfrom(1024)
+    except socket.timeout:
+        return False
+
+    r = unpack(">bbbbQiii", data)
+
+    ping = (datetime.datetime.now().microsecond - r[4]) / 1000.0
+    if ping < 0:
+        ping = ping + 1000
+
+    return {
+        'version': r[1:4],
+        'ping': ping,
+        'users': r[5],
+        'max': r[6],
+        'bandwidth': r[7]/1000,
+        }
+
+config = [
+    ['mylabel', 'mumble.example.com', '64738'],
+]
+
+
+arg = ''
+
+if len(sys.argv) > 1:
+    arg = sys.argv[1]
+
+if 'autoconf' in arg:
+    print("yes")
+    sys.exit(0)
+
+if 'config' in arg:
+    print('graph_title Mumble Pings')
+    print('graph_args --base 1000 -l 0')
+    print('graph_info This graph shows the pings')
+    print('graph_category mumble')
+    print('graph_vlabel ms')
+    print('graph_scale no')
+
+    for c in config:
+        name = c[0]
+        host = c[1]
+        port = c[2]
+        print('ping-{0}.label {1}'.format(name, host))
+        print('ping-{0}.type GAUGE'.format(name))
+        print('ping-{0}.min 0'.format(name))
+    sys.exit(0)
+
+for c in config:
+    name = c[0]
+    host = c[1]
+    port = c[2]
+    data = mumble_query(host, port)
+    if not data:
+         continue
+    print('ping-{0}.value {1}'.format(name, data['ping']))
+
+
